@@ -1,0 +1,183 @@
+<html>
+    <head>
+        <title>Halo Testing Tool</title>
+        <script type="text/javascript" src="hex.js"></script>
+        <script type="text/javascript" src="gatt_test.js"></script>
+        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.min.js"></script>
+        <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.0/css/bulma.min.css">
+    
+        <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
+        <script defer src="https://use.fontawesome.com/releases/v5.0.10/js/all.js"
+                integrity="sha384-slN8GvtUJGnv6ca26v8EzVaR9DC58QEwsIk9q1QXdCU8Yu8ck/tL/5szYlBbqmS+"
+                crossorigin="anonymous">
+        </script>
+
+        <link rel="shortcut icon" href="favicon-96x96.png"/>
+    </head>
+
+
+    <body style="background-color:lightblue ; font-family: 'Roboto', sans-serif;">
+        <br><div>
+            <div id="ConnectionIndication" style="margin-left:30px;background-color:lightyellow;width:800px;border:1px solid black;"> 
+                <div> 
+                    <label style="margin-left:15px;color:#072c77">Device</button>
+                </div>  
+    
+                <div> 
+                    <button id="Connect" onclick="Connect()" style="margin-left:15px; font-size: large;">Connect</button>
+                    <button id="Disconnect" onclick="onDisconnectButtonClick()" style="font-size: large;">Disconnect</button>
+                    <button id="Reset" onclick="onResetButtonClick()" style="font-size: large;">Reset</button>
+                </div>
+            <br></div>
+
+
+
+            <!-- *********************************************************************************************** -->
+
+
+            <div style="margin-left:30px;background-color:lightyellow;width:800px;border:1px solid black;">
+                <div> 
+                    <label style="margin-left:15px;color:#072c77">Test Service</button>
+                </div>  
+    
+                <br><div>
+                    <label style="margin-left:15px;width: 200px;display: inline-block;"> Test Type:</input>                    
+                    <br><select id="SelectTestType" onchange="SelectTestTypeChanged()" style="font-size: large; background-color: white;">
+                        <option></option>
+                        <option value="1">RADIO RX</option>
+                        <option value="2">RADIO TX</option>
+                        <option value="3">NFC</option>
+                    </select>  
+
+                    <label style="width: 200px;display: inline-block;">Channel (0-39):</input>
+                    <br><input id="InputChannel" type="text"></input> 
+                    
+                    <label style="width: 200px;display: inline-block;"> TX Power:</input>                    
+                    <br><select id="SelectTxPower" onchange="SelectTxPowerChanged()" style="font-size: large; background-color: white;">
+                        <option></option>
+                        <option value="0">+8dbm</option>
+                        <option value="1">+4dbm</option>
+                        <option value="2">0dbm</option>
+                        <option value="3">-4dbm</option>
+                    </select>  
+
+                    <label style="width: 200px;display: inline-block;">Packet Lenght:</input>
+                    <br><input id="InputPacketLenght" type="text"></input>                    
+
+                    <label style="width: 200px;display: inline-block;"> Test Type:</input>                    
+                    <br><select id="SelectPayloadType" onchange="SelectPayloadTypeChanged()" style="font-size: large; background-color: white;">
+                        <option></option>
+                        <option value="0">DTM_PKT_PRBS9</option>
+                        <option value="1">DTM_PKT_0X0F</option>
+                        <option value="2">DTM_PKT_0X55</option>
+						<option value="255">DTM_VENDORSPECFIC</option>
+                    </select>                             
+                </div>                   
+           
+
+                <br><div> 
+                    <button id="ButtonTestWrite" onclick="TestOnWriteButtonClick()" style="margin-left:15px;font-size: large">Write</button>
+                </div>              
+            <br></div>
+
+
+            <!-- *********************************************************************************************** -->
+
+                <textarea id="logdataBox" style="margin-left:30px;width:800px;font-family:Courier;color:white;background-color:darkslategray;white-space:pre-wrap" rows = "10"></textarea>
+        </div>
+             
+
+        <script>
+            var bluetoothDevice;
+            var BLE_Server;
+
+            let options = {
+                filters: [
+                    {namePrefix: 'Halo_EP'}
+                ],
+                optionalServices: [
+                    TestServiceUUIDString,
+                ]
+            }
+
+            
+            function Connect() {
+                return (bluetoothDevice ? Promise.resolve() : requestDevice())
+                        .then(connectDeviceAndCacheCharacteristics)
+                        .catch(error => {
+                            write_log('Argh! ' + error);
+                        });
+            } 
+
+            
+            function onResetButtonClick() {
+                if (dataCharacteristic) {
+                    dataCharacteristic.removeEventListener('characteristicvaluechanged', handleDataChanged);
+                        dataCharacteristic = null;
+                }
+                // Note that it doesn't disconnect device.
+                bluetoothDevice = null;
+                write_log('> Bluetooth Device reset');
+            }
+
+            
+            function write_log(row) {
+                console.log(row);
+                document.getElementById("logdataBox").value += row + '\n';
+                document.getElementById("logdataBox").scrollTop = document.getElementById("logdataBox").scrollHeight;
+            }
+
+
+            function requestDevice() {
+                write_log('Requesting any Bluetooth Device...');
+                return navigator.bluetooth.requestDevice(options)
+                .then(device => {
+                    bluetoothDevice = device;
+                    bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                });
+            }   
+
+
+            function connectDeviceAndCacheCharacteristics() {
+                if (bluetoothDevice.gatt.connected && dataCharacteristic) {
+                    return Promise.resolve();
+                }
+                write_log('Connecting to GATT Server...');
+                return bluetoothDevice.gatt.connect()
+                .then(server => {
+                    BLE_Server = server;
+                    document.getElementById("ConnectionIndication").style.backgroundColor="lightgreen";             
+                    write_log('Getting Services...');
+
+                    return Promise.all([
+                        BLE_Server.getPrimaryService(TestServiceUUIDString)
+                        .then(handleTestService),
+                    ]);  
+                })
+            }
+
+
+            function onDisconnectButtonClick() {
+                if (!bluetoothDevice) {
+                    return;
+                }
+                write_log('Disconnecting from Bluetooth Device...');
+                if (bluetoothDevice.gatt.connected) {
+                    bluetoothDevice.gatt.disconnect();
+                } else {
+                    write_log('> Bluetooth Device is already disconnected');
+                }
+            }
+
+
+            function onDisconnected(event) 
+            {
+                // Object event.target is Bluetooth Device getting disconnected.
+                write_log('> Bluetooth Device disconnected');
+                document.getElementById("ConnectionIndication").style.backgroundColor="lightcoral";
+            }
+
+        </script>
+    </body>
+</html>
